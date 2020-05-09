@@ -34,7 +34,7 @@ from six import iteritems
 
 # noinspection PyUnreachableCode
 if False:
-    from typing import AnyStr, Optional, Tuple, Union
+    from typing import Any, AnyStr, Optional, Tuple, Union
 
 
 class MediaBrowserMetadata(generic.GenericMetadata):
@@ -226,8 +226,8 @@ class MediaBrowserMetadata(generic.GenericMetadata):
 
         return ek.ek(os.path.join, show_obj.location, season_dir, 'banner.jpg')
 
-    def _show_data(self, show_obj):
-        # type: (sickbeard.tv.TVShow) -> Optional[Union[bool, etree.Element]]
+    def _show_data(self, show_obj, show_info=None):
+        # type: (sickbeard.tv.TVShow, Any) -> Tuple[Optional[Union[bool, etree.Element]], Any]
         """
         Creates an elementTree XML structure for a MediaBrowser-style series.xml
         returns the resulting data object.
@@ -235,43 +235,44 @@ class MediaBrowserMetadata(generic.GenericMetadata):
         show_obj: a TVShow instance to create the NFO for
         """
 
-        show_lang = show_obj.lang
+        if not show_info:
+            show_lang = show_obj.lang
 
-        # There's gotta be a better way of doing this but we don't wanna
-        # change the language value elsewhere
-        tvinfo_config = sickbeard.TVInfoAPI(show_obj.tvid).api_params.copy()
+            # There's gotta be a better way of doing this but we don't wanna
+            # change the language value elsewhere
+            tvinfo_config = sickbeard.TVInfoAPI(show_obj.tvid).api_params.copy()
 
-        tvinfo_config['actors'] = True
+            tvinfo_config['actors'] = True
 
-        if show_lang and not 'en' == show_lang:
-            tvinfo_config['language'] = show_lang
+            if show_lang and not 'en' == show_lang:
+                tvinfo_config['language'] = show_lang
 
-        if 0 != show_obj.dvdorder:
-            tvinfo_config['dvdorder'] = True
+            if 0 != show_obj.dvdorder:
+                tvinfo_config['dvdorder'] = True
 
-        t = sickbeard.TVInfoAPI(show_obj.tvid).setup(**tvinfo_config)
+            t = sickbeard.TVInfoAPI(show_obj.tvid).setup(**tvinfo_config)
 
-        tv_node = etree.Element("Series")
+            tv_node = etree.Element("Series")
 
-        try:
-            show_info = t[int(show_obj.prodid)]
-        except BaseTVinfoShownotfound as e:
-            logger.log("Unable to find show with id %s on %s, skipping it" %
-                       (show_obj.prodid, sickbeard.TVInfoAPI(show_obj.tvid).name), logger.ERROR)
-            raise e
-        except BaseTVinfoError as e:
-            logger.log("%s is down, can't use its data to make the NFO" % sickbeard.TVInfoAPI(show_obj.tvid).name,
-                       logger.ERROR)
-            raise e
+            try:
+                show_info = t[int(show_obj.prodid)]
+            except BaseTVinfoShownotfound as e:
+                logger.log("Unable to find show with id %s on %s, skipping it" %
+                           (show_obj.prodid, sickbeard.TVInfoAPI(show_obj.tvid).name), logger.ERROR)
+                raise e
+            except BaseTVinfoError as e:
+                logger.log("%s is down, can't use its data to make the NFO" % sickbeard.TVInfoAPI(show_obj.tvid).name,
+                           logger.ERROR)
+                raise e
 
         if not self._valid_show(show_info, show_obj):
-            return
+            return None, show_info
 
         # check for title and id
         if None is getattr(show_info, 'seriesname', None) or None is getattr(show_info, 'id', None):
             logger.log("Incomplete info for show with id %s on %s, skipping it" %
                        (show_obj.prodid, sickbeard.TVInfoAPI(show_obj.tvid).name), logger.ERROR)
-            return False
+            return False, show_info
 
         prodid = etree.SubElement(tv_node, "id")
         if None is not getattr(show_info, 'id', None):
@@ -385,10 +386,10 @@ class MediaBrowserMetadata(generic.GenericMetadata):
 
         data = etree.ElementTree(tv_node)
 
-        return data
+        return data, show_info
 
-    def _ep_data(self, ep_obj):
-        # type: (sickbeard.tv.TVEpisode) -> Optional[Union[bool, etree.Element]]
+    def _ep_data(self, ep_obj, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, Any) -> Tuple[Optional[bool, etree.Element], Any]
         """
         Creates an elementTree XML structure for a MediaBrowser style episode.xml
         and returns the resulting data object.
@@ -421,10 +422,10 @@ class MediaBrowserMetadata(generic.GenericMetadata):
         except BaseTVinfoError as e:
             logger.log("Unable to connect to %s while creating meta files - skipping - %s" %
                        (sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).name, ex(e)), logger.ERROR)
-            return False
+            return False, show_info
 
         if not self._valid_show(show_info, ep_obj.show_obj):
-            return
+            return None, show_info
 
         rootNode = etree.Element("Item")
 
@@ -436,7 +437,7 @@ class MediaBrowserMetadata(generic.GenericMetadata):
             except (BaseException, Exception):
                 logger.log("Unable to find episode %sx%s on %s.. has it been removed? Should I delete from db?" %
                            (cur_ep_obj.season, cur_ep_obj.episode, sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).name))
-                return None
+                return None, show_info
 
             if cur_ep_obj == ep_obj:
                 # root (or single) episode
@@ -446,7 +447,7 @@ class MediaBrowserMetadata(generic.GenericMetadata):
                     ep_info['firstaired'] = str(datetime.date.fromordinal(1))
 
                 if None is getattr(ep_info, 'episodename', None) or None is getattr(ep_info, 'firstaired', None):
-                    return None
+                    return None, show_info
 
                 episode = rootNode
 
@@ -559,7 +560,7 @@ class MediaBrowserMetadata(generic.GenericMetadata):
         helpers.indent_xml(rootNode)
         data = etree.ElementTree(rootNode)
 
-        return data
+        return data, show_info
 
 
 # present a standard "interface" from the module

@@ -63,7 +63,7 @@ from six import integer_types, iteritems, itervalues, string_types
 
 # noinspection PyUnreachableCode
 if False:
-    from typing import Any, AnyStr, Dict, List, Optional, Text
+    from typing import Any, AnyStr, Dict, List, Optional, Text, Tuple
     from tvinfo_base import TVInfoEpisode
 
 
@@ -621,22 +621,25 @@ class TVShow(TVShowBase):
         # update shows without an airdate for the last episode for update_days_limit days every 7 days
         return last_airdate_unknown and airdate_diff <= ended_limit and last_update_diff >= datetime.timedelta(days=7)
 
-    def write_show_nfo(self, force=False):
+    def write_show_nfo(self, force=False, show_info=None):
+        # type: (bool, Any) -> Optional[Tuple[bool, Any]]
 
         result = False
 
         if not ek.ek(os.path.isdir, self._location):
             logger.log('%s: Show directory doesn\'t exist, skipping NFO generation' % self.tvid_prodid)
-            return False
+            return False, show_info
 
         logger.log('%s: Writing NFOs for show' % self.tvid_prodid)
         for cur_provider in itervalues(sickbeard.metadata_provider_dict):
-            result = cur_provider.create_show_metadata(self, force) or result
+            result = cur_provider.create_show_metadata(self, force, show_info) or result
+            if isinstance(result, tuple):
+                result, show_info = result
 
-        return result
+        return result, show_info
 
-    def write_metadata(self, show_only=False, force=False):
-        # type:(bool, bool) -> None
+    def write_metadata(self, show_only=False, force=False, show_info=None):
+        # type:(bool, bool, Any) -> None
         """
         :param show_only: only for show
         :param force:
@@ -649,12 +652,14 @@ class TVShow(TVShowBase):
 
         force_nfo = force or not db.DBConnection().has_flag('kodi_nfo_uid')
 
-        self.write_show_nfo(force_nfo)
+        result = self.write_show_nfo(force_nfo, show_info)
+        if isinstance(result, tuple):
+            result, show_info = result
 
         if not show_only:
-            self.write_episode_nfo(force_nfo)
+            self.write_episode_nfo(force_nfo, show_info)
 
-    def write_episode_nfo(self, force=False):
+    def write_episode_nfo(self, force=False, show_info=None):
 
         if not ek.ek(os.path.isdir, self._location):
             logger.log('%s: Show directory doesn\'t exist, skipping NFO generation' % self.tvid_prodid)
@@ -686,7 +691,9 @@ class TVShow(TVShowBase):
                            logger.DEBUG)
                 processed += list(set([(cur_result['season'], cur_result['episode'])] +
                                       [(x.season, x.episode) for x in ep_obj.related_ep_obj]))
-            ep_obj.create_meta_files(force)
+            result = ep_obj.create_meta_files(force, show_info)
+            if isinstance(result, tuple):
+                result, show_info = result
 
     def update_metadata(self):
 
@@ -724,18 +731,22 @@ class TVShow(TVShowBase):
 
         # create TVEpisodes from each media file (if possible)
         sql_l = []
+        show_info = None
         for cur_media_file in file_list:
             parse_result = None
             ep_obj = None
 
             logger.log('%s: Creating episode from %s' % (self.tvid_prodid, cur_media_file), logger.DEBUG)
             try:
-                ep_obj = self.ep_obj_from_file(ek.ek(os.path.join, self._location, cur_media_file))
+                ep_obj = self.ep_obj_from_file(ek.ek(os.path.join, self._location, cur_media_file), show_info)
             except (exceptions_helper.ShowNotFoundException, exceptions_helper.EpisodeNotFoundException) as e:
                 logger.log('Episode %s returned an exception: %s' % (cur_media_file, ex(e)), logger.ERROR)
                 continue
             except exceptions_helper.EpisodeDeletedException:
                 logger.log('The episode deleted itself when I tried making an object for it', logger.DEBUG)
+
+            if isinstance(ep_obj, tuple):
+                ep_obj, show_info = ep_obj
 
             if None is ep_obj:
                 continue
@@ -773,6 +784,7 @@ class TVShow(TVShowBase):
         if 0 < len(sql_l):
             my_db = db.DBConnection()
             my_db.mass_action(sql_l)
+        return show_info
 
     def load_episodes_from_db(self, update=False):
         # type: (bool) -> Dict[int, Dict[int, TVEpisode]]
@@ -951,7 +963,8 @@ class TVShow(TVShowBase):
             or season_all_poster_result or season_all_banner_result
 
     # make a TVEpisode object from a media file
-    def ep_obj_from_file(self, path):
+    def ep_obj_from_file(self, path, show_info=None):
+        # type: (AnyStr, Any) -> Optional[Tuple[TVEpisode, Any]]
         """
 
         :param path:
@@ -1106,12 +1119,15 @@ class TVShow(TVShowBase):
             my_db = db.DBConnection()
             my_db.mass_action(sql_l)
 
+        show_info = None
         # creating metafiles on the root should be good enough
         if sickbeard.USE_FAILED_DOWNLOADS and None is not root_ep_obj:
             with root_ep_obj.lock:
-                root_ep_obj.create_meta_files()
+                result = root_ep_obj.create_meta_files(show_info)
+                if isinstance(result, tuple):
+                    show_info = result[1]
 
-        return root_ep_obj
+        return root_ep_obj, show_info
 
     def load_from_db(self):
         """
@@ -1578,7 +1594,7 @@ class TVShow(TVShowBase):
             return False
 
         # load from dir
-        self.load_episodes_from_dir()
+        show_info = self.load_episodes_from_dir()
 
         # run through all locations from DB, check that they exist
         logger.log('%s: Loading all episodes for [%s] with a location from the database'
@@ -1668,6 +1684,7 @@ class TVShow(TVShowBase):
         if 0 < len(sql_l):
             my_db = db.DBConnection()
             my_db.mass_action(sql_l)
+        return show_info
 
     def download_subtitles(self, force=False):
         """
@@ -2682,7 +2699,7 @@ class TVEpisode(TVEpisodeBase):
                + 'hastbn: %s\n' % self.hastbn \
                + 'status: %s\n' % self.status
 
-    def create_meta_files(self, force=False):
+    def create_meta_files(self, force=False, show_info=None):
 
         # noinspection PyProtectedMember
         if not ek.ek(os.path.isdir, self.show_obj._location):
@@ -2690,13 +2707,16 @@ class TVEpisode(TVEpisodeBase):
                        % self.show_obj.tvid_prodid)
             return
 
-        self.create_nfo(force)
-        self.create_thumbnail()
+        result = self.create_nfo(force)
+        if isinstance(result, tuple):
+            result, show_info = result
+        result = self.create_thumbnail(show_info)
 
         if self.check_for_meta_files():
             self.save_to_db()
+        return result
 
-    def create_nfo(self, force=False):
+    def create_nfo(self, force=False, show_info=None):
         """
 
         :return:
@@ -2705,11 +2725,14 @@ class TVEpisode(TVEpisodeBase):
         result = False
 
         for cur_provider in itervalues(sickbeard.metadata_provider_dict):
-            result = cur_provider.create_episode_metadata(self, force) or result
+            result = cur_provider.create_episode_metadata(self, force, show_info) or result
+            if isinstance(result, tuple):
+                result, show_info = result
 
-        return result
+        return result, show_info
 
-    def create_thumbnail(self):
+    def create_thumbnail(self, show_info=None):
+        # type: (...) -> Tuple[bool, Any]
         """
 
         :return:
@@ -2718,9 +2741,11 @@ class TVEpisode(TVEpisodeBase):
         result = False
 
         for cur_provider in itervalues(sickbeard.metadata_provider_dict):
-            result = cur_provider.create_episode_thumb(self) or result
+            result = cur_provider.create_episode_thumb(self, show_info) or result
+            if isinstance(result, tuple) and result[1]:
+                result, show_info = result
 
-        return result
+        return result, show_info
 
     def delete_episode(self):
 

@@ -909,8 +909,8 @@ class QueueItemRefresh(ShowQueueItem):
 
         logger.log('Performing refresh on %s' % self.show_obj.name)
 
-        self.show_obj.refresh_dir()
-        self.show_obj.write_metadata(force=self.force)
+        show_info = self.show_obj.refresh_dir()
+        self.show_obj.write_metadata(force=self.force, show_info=show_info)
         # if self.force:
         #    self.show_obj.update_metadata()
         self.show_obj.populate_cache(self.force_image_cache)

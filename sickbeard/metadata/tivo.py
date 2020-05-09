@@ -33,7 +33,7 @@ from exceptions_helper import ex
 
 # noinspection PyUnreachableCode
 if False:
-    from typing import AnyStr, Optional, Tuple, Union
+    from typing import Any, AnyStr, Optional, Tuple, Union
 
 
 class TIVOMetadata(generic.GenericMetadata):
@@ -95,8 +95,8 @@ class TIVOMetadata(generic.GenericMetadata):
         # no show metadata generated, we abort this lookup function
         return None, None, None
 
-    def create_show_metadata(self, show_obj, force=False):
-        # type: (sickbeard.tv.TVShow, bool) -> None
+    def create_show_metadata(self, show_obj, force=False, show_info=None):
+        # type: (sickbeard.tv.TVShow, bool, Any) -> Optional[Tuple[None, Any]]
         pass
 
     def update_show_indexer_metadata(self, show_obj):
@@ -119,7 +119,7 @@ class TIVOMetadata(generic.GenericMetadata):
         # type: (sickbeard.tv.TVShow) -> None
         pass
 
-    def create_episode_thumb(self, ep_obj):
+    def create_episode_thumb(self, ep_obj, *args, **kwargs):
         # type: (sickbeard.tv.TVEpisode) -> None
         pass
 
@@ -165,8 +165,8 @@ class TIVOMetadata(generic.GenericMetadata):
             return ''
         return metadata_file_path
 
-    def _ep_data(self, ep_obj):
-        # type: (sickbeard.tv.TVEpisode) -> Optional[Union[bool, AnyStr]]
+    def _ep_data(self, ep_obj, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, Any) -> Optional[Tuple[Union[bool, AnyStr], Any]]
         """
         Creates a key value structure for a Tivo episode metadata file and
         returns the resulting data object.
@@ -190,28 +190,29 @@ class TIVOMetadata(generic.GenericMetadata):
 
         show_lang = ep_obj.show_obj.lang
 
-        try:
-            tvinfo_config = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).api_params.copy()
+        if not show_info:
+            try:
+                tvinfo_config = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).api_params.copy()
 
-            tvinfo_config['actors'] = True
+                tvinfo_config['actors'] = True
 
-            if show_lang and not 'en' == show_lang:
-                tvinfo_config['language'] = show_lang
+                if show_lang and not 'en' == show_lang:
+                    tvinfo_config['language'] = show_lang
 
-            if 0 != ep_obj.show_obj.dvdorder:
-                tvinfo_config['dvdorder'] = True
+                if 0 != ep_obj.show_obj.dvdorder:
+                    tvinfo_config['dvdorder'] = True
 
-            t = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).setup(**tvinfo_config)
-            show_info = t[ep_obj.show_obj.prodid]
-        except BaseTVinfoShownotfound as e:
-            raise exceptions_helper.ShowNotFoundException(ex(e))
-        except BaseTVinfoError as e:
-            logger.log("Unable to connect to %s while creating meta files - skipping - %s" %
-                       (sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).name, ex(e)), logger.ERROR)
-            return False
+                t = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).setup(**tvinfo_config)
+                show_info = t[ep_obj.show_obj.prodid]
+            except BaseTVinfoShownotfound as e:
+                raise exceptions_helper.ShowNotFoundException(ex(e))
+            except BaseTVinfoError as e:
+                logger.log("Unable to connect to %s while creating meta files - skipping - %s" %
+                           (sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).name, ex(e)), logger.ERROR)
+                return False, show_info
 
         if not self._valid_show(show_info, ep_obj.show_obj):
-            return
+            return None, show_info
 
         for cur_ep_obj in ep_obj_list_to_write:
 
@@ -220,13 +221,13 @@ class TIVOMetadata(generic.GenericMetadata):
             except (BaseException, Exception):
                 logger.log("Unable to find episode %sx%s on %s... has it been removed? Should I delete from db?" %
                            (cur_ep_obj.season, cur_ep_obj.episode, sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).name))
-                return None
+                return None, show_info
 
             if None is getattr(ep_info, 'firstaired', None) and 0 == ep_obj.season:
                 ep_info["firstaired"] = str(datetime.date.fromordinal(1))
 
             if None is getattr(ep_info, 'episodename', None) or None is getattr(ep_info, 'firstaired', None):
-                return None
+                return None, show_info
 
             if None is not getattr(show_info, 'seriesname', None):
                 data += ("title : " + show_info["seriesname"] + "\n")
@@ -316,7 +317,7 @@ class TIVOMetadata(generic.GenericMetadata):
                         # partCount
                         # partIndex
 
-        return data
+        return data, show_info
 
     def write_ep_file(self, ep_obj):
         # type: (sickbeard.tv.TVEpisode) -> bool

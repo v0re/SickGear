@@ -32,7 +32,7 @@ from lxml_etree import etree
 
 # noinspection PyUnreachableCode
 if False:
-    from typing import AnyStr, Optional, Tuple, Union
+    from typing import Any, AnyStr, Optional, Tuple, Union
 
 
 class WDTVMetadata(generic.GenericMetadata):
@@ -97,8 +97,8 @@ class WDTVMetadata(generic.GenericMetadata):
         # no show metadata generated, we abort this lookup function
         return None, None, None
 
-    def create_show_metadata(self, show_obj, force=False):
-        # type: (sickbeard.tv.TVShow, bool) -> None
+    def create_show_metadata(self, show_obj, force=False, show_info=None):
+        # type: (sickbeard.tv.TVShow, bool, Any) -> Optional[Tuple[None, Any]]
         pass
 
     def update_show_indexer_metadata(self, show_obj):
@@ -178,8 +178,8 @@ class WDTVMetadata(generic.GenericMetadata):
 
         return ek.ek(os.path.join, show_obj.location, season_dir, 'folder.jpg')
 
-    def _ep_data(self, ep_obj):
-        # type: (sickbeard.tv.TVEpisode) -> Optional[Union[bool, etree.Element]]
+    def _ep_data(self, ep_obj, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, Any) -> Tuple[Optional[Union[bool, etree.Element]], Any]
         """
         Creates an elementTree XML structure for a WDTV style episode.xml
         and returns the resulting data object.
@@ -189,30 +189,31 @@ class WDTVMetadata(generic.GenericMetadata):
 
         ep_obj_list_to_write = [ep_obj] + ep_obj.related_ep_obj
 
-        show_lang = ep_obj.show_obj.lang
+        if not show_info:
+            show_lang = ep_obj.show_obj.lang
 
-        try:
-            tvinfo_config = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).api_params.copy()
+            try:
+                tvinfo_config = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).api_params.copy()
 
-            tvinfo_config['actors'] = True
+                tvinfo_config['actors'] = True
 
-            if show_lang and not 'en' == show_lang:
-                tvinfo_config['language'] = show_lang
+                if show_lang and not 'en' == show_lang:
+                    tvinfo_config['language'] = show_lang
 
-            if 0 != ep_obj.show_obj.dvdorder:
-                tvinfo_config['dvdorder'] = True
+                if 0 != ep_obj.show_obj.dvdorder:
+                    tvinfo_config['dvdorder'] = True
 
-            t = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).setup(**tvinfo_config)
-            show_info = t[ep_obj.show_obj.prodid]
-        except BaseTVinfoShownotfound as e:
-            raise exceptions_helper.ShowNotFoundException(ex(e))
-        except BaseTVinfoError as e:
-            logger.log("Unable to connect to %s while creating meta files - skipping - %s" %
-                       (sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).name, ex(e)), logger.ERROR)
-            return False
+                t = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).setup(**tvinfo_config)
+                show_info = t[ep_obj.show_obj.prodid]
+            except BaseTVinfoShownotfound as e:
+                raise exceptions_helper.ShowNotFoundException(ex(e))
+            except BaseTVinfoError as e:
+                logger.log("Unable to connect to %s while creating meta files - skipping - %s" %
+                           (sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).name, ex(e)), logger.ERROR)
+                return False, show_info
 
         if not self._valid_show(show_info, ep_obj.show_obj):
-            return
+            return None, show_info
 
         rootNode = etree.Element("details")
         data = None
@@ -225,13 +226,13 @@ class WDTVMetadata(generic.GenericMetadata):
             except (BaseException, Exception):
                 logger.log("Unable to find episode %sx%s on %s... has it been removed? Should I delete from db?" %
                            (cur_ep_obj.season, cur_ep_obj.episode, sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).name))
-                return None
+                return None, show_info
 
             if None is getattr(ep_info, 'firstaired', None) and 0 == ep_obj.season:
                 ep_info["firstaired"] = str(datetime.date.fromordinal(1))
 
             if None is getattr(ep_info, 'episodename', None) or None is getattr(ep_info, 'firstaired', None):
-                return None
+                return None, show_info
 
             if 1 < len(ep_obj_list_to_write):
                 episode = etree.SubElement(rootNode, "details")
@@ -301,7 +302,7 @@ class WDTVMetadata(generic.GenericMetadata):
             helpers.indent_xml(rootNode)
             data = etree.ElementTree(rootNode)
 
-        return data
+        return data, show_info
 
 
 # present a standard "interface" from the module

@@ -25,7 +25,7 @@ import sickbeard
 
 # noinspection PyUnreachableCode
 if False:
-    from typing import AnyStr, Optional, Tuple
+    from typing import Any, AnyStr, Optional, Tuple
 
 
 class PS3Metadata(generic.GenericMetadata):
@@ -86,8 +86,8 @@ class PS3Metadata(generic.GenericMetadata):
         # no show metadata generated, we abort this lookup function
         return None, None, None
 
-    def create_show_metadata(self, show_obj, force=False):
-        # type: (sickbeard.tv.TVShow, bool) -> None
+    def create_show_metadata(self, show_obj, force=False, show_info=None):
+        # type: (sickbeard.tv.TVShow, bool, Any) -> Optional[Tuple[None, Any]]
         pass
 
     def update_show_indexer_metadata(self, show_obj):
@@ -98,7 +98,7 @@ class PS3Metadata(generic.GenericMetadata):
         # type: (sickbeard.tv.TVShow) -> None
         pass
 
-    def create_episode_metadata(self, ep_obj, force=False):
+    def create_episode_metadata(self, ep_obj, force=False, show_info=None):
         # type: (sickbeard.tv.TVEpisode, bool) -> None
         pass
 

@@ -35,7 +35,7 @@ from six import string_types
 
 # noinspection PyUnreachableCode
 if False:
-    from typing import AnyStr, Dict, Optional, Union
+    from typing import Any, AnyStr, Dict, Optional, Tuple, Union
 
 
 class KODIMetadata(generic.GenericMetadata):
@@ -99,8 +99,8 @@ class KODIMetadata(generic.GenericMetadata):
         self.eg_season_all_poster = 'season-all-poster.jpg'  # type: AnyStr
         self.eg_season_all_banner = 'season-all-banner.jpg'  # type: AnyStr
 
-    def _show_data(self, show_obj):
-        # type: (sickbeard.tv.TVShow) -> Optional[Union[bool, etree.Element]]
+    def _show_data(self, show_obj, show_info=None):
+        # type: (sickbeard.tv.TVShow, Any) -> Tuple[Optional[Union[bool, etree.Element]], Any]
         """
         Creates an elementTree XML structure for a Kodi-style tvshow.nfo and
         returns the resulting data object.
@@ -110,41 +110,42 @@ class KODIMetadata(generic.GenericMetadata):
 
         show_ID = show_obj.prodid
 
-        show_lang = show_obj.lang
-        tvinfo_config = sickbeard.TVInfoAPI(show_obj.tvid).api_params.copy()
+        if not show_info:
+            show_lang = show_obj.lang
+            tvinfo_config = sickbeard.TVInfoAPI(show_obj.tvid).api_params.copy()
 
-        tvinfo_config['actors'] = True
+            tvinfo_config['actors'] = True
 
-        if show_lang and not 'en' == show_lang:
-            tvinfo_config['language'] = show_lang
+            if show_lang and not 'en' == show_lang:
+                tvinfo_config['language'] = show_lang
 
-        if 0 != show_obj.dvdorder:
-            tvinfo_config['dvdorder'] = True
+            if 0 != show_obj.dvdorder:
+                tvinfo_config['dvdorder'] = True
 
-        t = sickbeard.TVInfoAPI(show_obj.tvid).setup(**tvinfo_config)
+            t = sickbeard.TVInfoAPI(show_obj.tvid).setup(**tvinfo_config)
 
-        tv_node = etree.Element('tvshow')
+            tv_node = etree.Element('tvshow')
 
-        try:
-            show_info = t[int(show_ID)]
-        except BaseTVinfoShownotfound as e:
-            logger.log('Unable to find show with id %s on %s, skipping it' % (show_ID, sickbeard.TVInfoAPI(
-                show_obj.tvid).name), logger.ERROR)
-            raise e
-        except BaseTVinfoError as e:
-            logger.log(
-                '%s is down, can\'t use its data to add this show' % sickbeard.TVInfoAPI(show_obj.tvid).name,
-                logger.ERROR)
-            raise e
+            try:
+                show_info = t[int(show_ID)]
+            except BaseTVinfoShownotfound as e:
+                logger.log('Unable to find show with id %s on %s, skipping it' % (show_ID, sickbeard.TVInfoAPI(
+                    show_obj.tvid).name), logger.ERROR)
+                raise e
+            except BaseTVinfoError as e:
+                logger.log(
+                    '%s is down, can\'t use its data to add this show' % sickbeard.TVInfoAPI(show_obj.tvid).name,
+                    logger.ERROR)
+                raise e
 
         if not self._valid_show(show_info, show_obj):
-            return
+            return None, show_info
 
         # check for title and id
         if None is getattr(show_info, 'seriesname', None) or None is getattr(show_info, 'id', None):
             logger.log('Incomplete info for show with id %s on %s, skipping it' % (show_ID, sickbeard.TVInfoAPI(
                 show_obj.tvid).name), logger.ERROR)
-            return False
+            return False, show_info
 
         title = etree.SubElement(tv_node, 'title')
         if None is not getattr(show_info, 'seriesname', None):
@@ -173,7 +174,7 @@ class KODIMetadata(generic.GenericMetadata):
         if not has_id:
             logger.log('Incomplete info for show with id %s on %s, skipping it' % (show_ID, sickbeard.TVInfoAPI(
                 show_obj.tvid).name), logger.ERROR)
-            return False
+            return False, show_info
 
         ratings = etree.SubElement(tv_node, 'ratings')
         if None is not getattr(show_info, 'rating', None):
@@ -220,7 +221,7 @@ class KODIMetadata(generic.GenericMetadata):
         if 3 == len(parts):
             data = 'episodeguide'.join([parts[0], parts[1].replace('&amp;quot;', '&quot;'), parts[2]])
 
-        return data
+        return data, show_info
 
     def write_show_file(self, show_obj):
         # type: (sickbeard.tv.TVShow) -> bool
@@ -239,8 +240,8 @@ class KODIMetadata(generic.GenericMetadata):
 
         return helpers.write_file(nfo_file_path, data, utf8=True)
 
-    def _ep_data(self, ep_obj):
-        # type: (sickbeard.tv.TVEpisode) -> Optional[etree.Element]
+    def _ep_data(self, ep_obj, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, Any) -> Tuple[Optional[etree.Element, Any], Any]
         """
         Creates an elementTree XML structure for a Kodi-style episode.nfo and
         returns the resulting data object.
@@ -248,30 +249,31 @@ class KODIMetadata(generic.GenericMetadata):
         """
         ep_obj_list_to_write = [ep_obj] + ep_obj.related_ep_obj
 
-        show_lang = ep_obj.show_obj.lang
+        if not show_info:
+            show_lang = ep_obj.show_obj.lang
 
-        tvinfo_config = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).api_params.copy()
+            tvinfo_config = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).api_params.copy()
 
-        tvinfo_config['actors'] = True
+            tvinfo_config['actors'] = True
 
-        if show_lang and not 'en' == show_lang:
-            tvinfo_config['language'] = show_lang
+            if show_lang and not 'en' == show_lang:
+                tvinfo_config['language'] = show_lang
 
-        if 0 != ep_obj.show_obj.dvdorder:
-            tvinfo_config['dvdorder'] = True
+            if 0 != ep_obj.show_obj.dvdorder:
+                tvinfo_config['dvdorder'] = True
 
-        try:
-            t = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).setup(**tvinfo_config)
-            show_info = t[ep_obj.show_obj.prodid]
-        except BaseTVinfoShownotfound as e:
-            raise exceptions_helper.ShowNotFoundException(ex(e))
-        except BaseTVinfoError as e:
-            logger.log('Unable to connect to %s while creating meta files - skipping - %s' % (sickbeard.TVInfoAPI(
-                ep_obj.show_obj.tvid).name, ex(e)), logger.ERROR)
-            return
+            try:
+                t = sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).setup(**tvinfo_config)
+                show_info = t[ep_obj.show_obj.prodid]
+            except BaseTVinfoShownotfound as e:
+                raise exceptions_helper.ShowNotFoundException(ex(e))
+            except BaseTVinfoError as e:
+                logger.log('Unable to connect to %s while creating meta files - skipping - %s' % (sickbeard.TVInfoAPI(
+                    ep_obj.show_obj.tvid).name, ex(e)), logger.ERROR)
+                return None, show_info
 
         if not self._valid_show(show_info, ep_obj.show_obj):
-            return
+            return None, show_info
 
         if 1 < len(ep_obj_list_to_write):
             root_node = etree.Element('xbmcmultiepisode')
@@ -286,14 +288,14 @@ class KODIMetadata(generic.GenericMetadata):
             except (BaseException, Exception):
                 logger.log('Unable to find episode %sx%s on %s.. has it been removed? Should I delete from db?' %
                            (cur_ep_obj.season, cur_ep_obj.episode, sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).name))
-                return None
+                return None, show_info
 
             if None is getattr(ep_info, 'firstaired', None):
                 ep_info['firstaired'] = str(datetime.date.fromordinal(1))
 
             if None is getattr(ep_info, 'episodename', None):
                 logger.log(u'Not generating nfo because the episode has no title', logger.DEBUG)
-                return None
+                return None, show_info
 
             logger.log('Creating metadata for episode %sx%s' % (ep_obj.season, ep_obj.episode), logger.DEBUG)
 
@@ -390,7 +392,7 @@ class KODIMetadata(generic.GenericMetadata):
 
         data = etree.ElementTree(root_node)
 
-        return data
+        return data, show_info
 
     @staticmethod
     def add_actor_element(show_info, et, node):

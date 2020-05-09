@@ -44,7 +44,7 @@ from six import iteritems, itervalues
 
 # noinspection PyUnreachableCode
 if False:
-    from typing import AnyStr, Dict, List, Optional, Tuple, Union
+    from typing import Any, AnyStr, Dict, List, Optional, Tuple, Union
 
 
 class GenericMetadata(object):
@@ -302,13 +302,13 @@ class GenericMetadata(object):
         # type: (sickbeard.tv.TVShow) -> AnyStr
         return ek.ek(os.path.join, show_obj.location, self.season_all_banner_name)
 
-    def _show_data(self, show_obj):
-        # type: (sickbeard.tv.TVShow) -> Optional[Union[bool, etree.Element]]
+    def _show_data(self, show_obj, show_info=None):
+        # type: (sickbeard.tv.TVShow, Any) -> Tuple[Optional[Union[bool, etree.Element]], Any]
         """
         This should be overridden by the implementing class. It should
         provide the content of the show metadata file.
         """
-        return None
+        return None, show_info
 
     @staticmethod
     def _valid_show(fetched_show_info, show_obj):
@@ -328,16 +328,16 @@ class GenericMetadata(object):
             return False
         return True
 
-    def _ep_data(self, ep_obj):
-        # type: (sickbeard.tv.TVEpisode) -> Optional[Union[bool, etree.Element]]
+    def _ep_data(self, ep_obj, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, Any) -> Tuple[Optional[Union[bool, etree.Element]], Any]
         """
         This should be overridden by the implementing class. It should
         provide the content of the episode metadata file.
         """
-        return None
+        return None, show_info
 
-    def create_show_metadata(self, show_obj, force=False):
-        # type: (sickbeard.tv.TVShow, bool) -> bool
+    def create_show_metadata(self, show_obj, force=False, show_info=None):
+        # type: (sickbeard.tv.TVShow, bool, Any) -> Tuple[bool, Any]
         result = False
         if self.show_metadata and show_obj and (not self._has_show_metadata(show_obj) or force):
             logger.log('Metadata provider %s creating show metadata for %s' % (self.name, show_obj.name), logger.DEBUG)
@@ -347,10 +347,12 @@ class GenericMetadata(object):
                 logger.log('Unable to find useful show metadata for %s on %s: %s' % (
                     self.name, sickbeard.TVInfoAPI(show_obj.tvid).name, ex(e)), logger.WARNING)
 
-        return result
+        if isinstance(result, tuple):
+            result, show_info = result
+        return result, show_info
 
-    def create_episode_metadata(self, ep_obj, force=False):
-        # type: (sickbeard.tv.TVEpisode, bool) -> bool
+    def create_episode_metadata(self, ep_obj, force=False, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, bool, Any) -> Tuple[bool, Any]
         result = False
         if self.episode_metadata and ep_obj and (not self.has_episode_metadata(ep_obj) or force):
             logger.log('Metadata provider %s creating episode metadata for %s' % (self.name, ep_obj.pretty_name()),
@@ -361,7 +363,9 @@ class GenericMetadata(object):
                 logger.log('Unable to find useful episode metadata for %s on %s: %s' % (
                     self.name, sickbeard.TVInfoAPI(ep_obj.show_obj.tvid).name, ex(e)), logger.WARNING)
 
-        return result
+        if isinstance(result, tuple):
+            result, show_info = result
+        return result, show_info
 
     def update_show_indexer_metadata(self, show_obj):
         # type: (sickbeard.tv.TVShow) -> bool
@@ -417,13 +421,13 @@ class GenericMetadata(object):
             return self.save_banner(show_obj)
         return False
 
-    def create_episode_thumb(self, ep_obj):
-        # type: (sickbeard.tv.TVEpisode) -> bool
+    def create_episode_thumb(self, ep_obj, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, Any) -> Tuple[bool, Any]
         if self.episode_thumbnails and ep_obj and not self.has_episode_thumb(ep_obj):
             logger.log(u"Metadata provider " + self.name + " creating episode thumbnail for " + ep_obj.pretty_name(),
                        logger.DEBUG)
-            return self.save_thumbnail(ep_obj)
-        return False
+            return self.save_thumbnail(ep_obj, show_info)
+        return False, None
 
     def create_season_posters(self, show_obj):
         # type: (sickbeard.tv.TVShow) -> bool
@@ -466,8 +470,8 @@ class GenericMetadata(object):
         return False
 
     @staticmethod
-    def _get_episode_thumb_url(ep_obj):
-        # type: (sickbeard.tv.TVEpisode) -> Optional[AnyStr]
+    def _get_episode_thumb_url(ep_obj, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, Any) -> Optional[AnyStr, Any]
         """
         Returns the URL to use for downloading an episode's thumbnail. Uses
         theTVDB.com and TVRage.com data.
@@ -482,24 +486,33 @@ class GenericMetadata(object):
         if not helpers.validate_show(ep_obj.show_obj):
             return None
 
+        ep_info = None
+
         # try all included episodes in case some have thumbs and others don't
         for cur_ep_obj in ep_obj_list:
             if TVINFO_TVDB == cur_ep_obj.show_obj.tvid:
-                show_lang = cur_ep_obj.show_obj.lang
+                if not show_info:
+                    show_lang = cur_ep_obj.show_obj.lang
 
-                try:
-                    tvinfo_config = sickbeard.TVInfoAPI(TVINFO_TVDB).api_params.copy()
-                    tvinfo_config['dvdorder'] = 0 != cur_ep_obj.show_obj.dvdorder
-                    tvinfo_config['no_dummy'] = True
+                    try:
+                        tvinfo_config = sickbeard.TVInfoAPI(TVINFO_TVDB).api_params.copy()
+                        tvinfo_config['dvdorder'] = 0 != cur_ep_obj.show_obj.dvdorder
+                        tvinfo_config['no_dummy'] = True
 
-                    if show_lang and not 'en' == show_lang:
-                        tvinfo_config['language'] = show_lang
+                        if show_lang and not 'en' == show_lang:
+                            tvinfo_config['language'] = show_lang
 
-                    t = sickbeard.TVInfoAPI(TVINFO_TVDB).setup(**tvinfo_config)
+                        t = sickbeard.TVInfoAPI(TVINFO_TVDB).setup(**tvinfo_config)
 
-                    ep_info = t[cur_ep_obj.show_obj.prodid][cur_ep_obj.season][cur_ep_obj.episode]
-                except (BaseTVinfoEpisodenotfound, BaseTVinfoSeasonnotfound, TypeError):
-                    ep_info = None
+                        show_info = t[cur_ep_obj.show_obj.prodid]
+                    except (BaseTVinfoEpisodenotfound, BaseTVinfoSeasonnotfound, TypeError):
+                        pass
+
+                if show_info:
+                    try:
+                        ep_info = show_info[cur_ep_obj.season][cur_ep_obj.episode]
+                    except (BaseTVinfoEpisodenotfound, BaseTVinfoSeasonnotfound, TypeError):
+                        pass
             else:
                 ep_info = helpers.validate_show(cur_ep_obj.show_obj, cur_ep_obj.season, cur_ep_obj.episode)
 
@@ -509,12 +522,12 @@ class GenericMetadata(object):
             thumb_url = getattr(ep_info, 'filename', None) \
                 or (isinstance(ep_info, dict) and ep_info.get('filename', None))
             if thumb_url not in (None, False, ''):
-                return thumb_url
+                return thumb_url, show_info
 
-        return None
+        return None, show_info
 
-    def write_show_file(self, show_obj):
-        # type: (sickbeard.tv.TVShow) -> bool
+    def write_show_file(self, show_obj, show_info=None):
+        # type: (sickbeard.tv.TVShow, Any) -> Tuple[bool, Any]
         """
         Generates and writes show_obj's metadata under the given path to the
         filename given by get_show_file_path()
@@ -530,18 +543,20 @@ class GenericMetadata(object):
         """
 
         data = self._show_data(show_obj)
+        if isinstance(data, tuple):
+            data, show_info = data
 
         if not data:
-            return False
+            return False, show_info
 
         nfo_file_path = self.get_show_file_path(show_obj)
 
         logger.log(u'Writing show metadata file: %s' % nfo_file_path, logger.DEBUG)
 
-        return helpers.write_file(nfo_file_path, data, xmltree=True, utf8=True)
+        return helpers.write_file(nfo_file_path, data, xmltree=True, utf8=True), show_info
 
-    def write_ep_file(self, ep_obj):
-        # type: (sickbeard.tv.TVEpisode) -> bool
+    def write_ep_file(self, ep_obj, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, Any) -> Tuple[bool, Any]
         """
         Generates and writes ep_obj's metadata under the given path with the
         given filename root. Uses the episode's name with the extension in
@@ -558,19 +573,21 @@ class GenericMetadata(object):
         override this method.
         """
 
-        data = self._ep_data(ep_obj)
+        data = self._ep_data(ep_obj, show_info)
+        if isinstance(data, tuple):
+            data, show_info = data
 
         if not data:
-            return False
+            return False, show_info
 
         nfo_file_path = self.get_episode_file_path(ep_obj)
 
         logger.log(u'Writing episode metadata file: %s' % nfo_file_path, logger.DEBUG)
 
-        return helpers.write_file(nfo_file_path, data, xmltree=True, utf8=True)
+        return helpers.write_file(nfo_file_path, data, xmltree=True, utf8=True), show_info
 
-    def save_thumbnail(self, ep_obj):
-        # type: (sickbeard.tv.TVEpisode) -> bool
+    def save_thumbnail(self, ep_obj, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, Any) -> Tuple[bool, Any]
         """
         Retrieves a thumbnail and saves it to the correct spot. This method should not need to
         be overridden by implementing classes, changing get_episode_thumb_path and
@@ -583,26 +600,31 @@ class GenericMetadata(object):
 
         if not file_path:
             logger.log(u"Unable to find a file path to use for this thumbnail, not generating it", logger.DEBUG)
-            return False
+            return False, None
 
-        thumb_url = self._get_episode_thumb_url(ep_obj)
+        result = self._get_episode_thumb_url(ep_obj, show_info)
+        if isinstance(result, tuple):
+            thumb_url, show_info = result
+        else:
+            thumb_url = None
+            show_info = None
 
         # if we can't find one then give up
         if not thumb_url:
             logger.log(u"No thumb is available for this episode, not creating a thumb", logger.DEBUG)
-            return False
+            return False, show_info
 
         thumb_data = metadata_helpers.getShowImage(thumb_url, show_name=ep_obj.show_obj.name)
 
         result = self._write_image(thumb_data, file_path)
 
         if not result:
-            return False
+            return False, show_info
 
         for cur_ep_obj in [ep_obj] + ep_obj.related_ep_obj:
             cur_ep_obj.hastbn = True
 
-        return True
+        return True, show_info
 
     def save_fanart(self, show_obj, which=None):
         # type: (sickbeard.tv.TVShow, Optional[AnyStr]) -> bool
