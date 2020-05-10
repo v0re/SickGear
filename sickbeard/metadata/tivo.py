@@ -319,8 +319,8 @@ class TIVOMetadata(generic.GenericMetadata):
 
         return data, show_info
 
-    def write_ep_file(self, ep_obj):
-        # type: (sickbeard.tv.TVEpisode) -> bool
+    def write_ep_file(self, ep_obj, show_info=None):
+        # type: (sickbeard.tv.TVEpisode, Any) -> Tuple[bool, Any]
         """
         Generates and writes ep_obj's metadata under the given path with the
         given filename root. Uses the episode's name with the extension in
@@ -333,9 +333,11 @@ class TIVOMetadata(generic.GenericMetadata):
                 include an absolute path.
         """
         data = self._ep_data(ep_obj)
+        if isinstance(data, tuple):
+            data, show_info = data
 
         if not data:
-            return False
+            return False, show_info
 
         nfo_file_path = self.get_episode_file_path(ep_obj)
         nfo_file_dir = ek.ek(os.path.dirname, nfo_file_path)
@@ -357,9 +359,9 @@ class TIVOMetadata(generic.GenericMetadata):
         except EnvironmentError as e:
             logger.log(u"Unable to write file to " + nfo_file_path + " - are you sure the folder is writable? " + ex(e),
                        logger.ERROR)
-            return False
+            return False, show_info
 
-        return True
+        return True, show_info
 
 
 # present a standard "interface" from the module
