@@ -223,22 +223,25 @@ class KODIMetadata(generic.GenericMetadata):
 
         return data, show_info
 
-    def write_show_file(self, show_obj):
-        # type: (sickbeard.tv.TVShow) -> bool
+    def write_show_file(self, show_obj, show_info=None):
+        # type: (sickbeard.tv.TVShow, Any) -> Tuple[bool, Any]
         """
         This method ovverides handles _show_data as a string
         instead of default ElementTree.
         """
         data = self._show_data(show_obj)
 
+        if isinstance(data, tuple):
+            data, show_info = data
+
         if not data:
-            return False
+            return False, show_info
 
         nfo_file_path = self.get_show_file_path(show_obj)
 
         logger.log(u'Writing Kodi metadata file: %s' % nfo_file_path, logger.DEBUG)
 
-        return helpers.write_file(nfo_file_path, data, utf8=True)
+        return helpers.write_file(nfo_file_path, data, utf8=True), show_info
 
     def _ep_data(self, ep_obj, show_info=None):
         # type: (sickbeard.tv.TVEpisode, Any) -> Tuple[Optional[etree.Element, Any], Any]
